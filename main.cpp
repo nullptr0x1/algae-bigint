@@ -1318,43 +1318,6 @@ namespace algae
     std::uint64_t vinteger::cast_standard::half_overflow_bound = vinteger::cast_standard::overflow_bound / 2;
 }
 
-#include <ctime>
-
-void test_0()
-{
-    {
-        std::uint64_t a = std::time(nullptr), b = std::time(nullptr), c = 0;
-        bool carry = 0;
-
-        std::clock_t stime = std::clock();
-
-        for(std::uint64_t i = 0; i < 0xFFFFFFFF; ++i)
-        {
-            std::uint64_t t = a + b + carry;
-            carry = (t < a) || (t < b) || (carry && t == 0);
-            c = t;
-        }
-
-        std::cout << (std::clock() - stime) / (double)(CLOCKS_PER_SEC) << std::endl;
-    }
-
-    {
-        std::clock_t stime = std::clock();
-
-        std::uint32_t a = std::time(nullptr), b = std::time(nullptr), c = 0;
-        bool carry = 0;
-
-        for(std::uint64_t i = 0, l = 0xFFFFFFFFull * 2; i < l; ++i)
-        {
-            std::uint64_t t = a + b + carry;
-            carry = t & 0xFFFFFFFF00000000;
-            c = t;
-        }
-
-        std::cout << (std::clock() - stime) / (double)(CLOCKS_PER_SEC) << std::endl;
-    }
-}
-
 int main()
 {
     algae::vinteger a, b;
