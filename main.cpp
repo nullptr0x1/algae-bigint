@@ -10,45 +10,11 @@
 #include <iostream>
 #include <algorithm>
 
-
 namespace algae
 {
     /*
-        高精度整数:
-            成员:
-                __bit_length: 整数位长度, 其绝对值描述当前整数的占用了多少bit，其符号为整数的符号
-                __buffer:以2^64进制的形式存储高精度整数的绝对值，以低位优先的方式存储(最低位从0开始)
-            
-            构造:
-                O.参数:void
-                    此时vinteger表示0
-
-                A.参数:10进制整数的字符串
-                    1.先把10进制整数的字符串转换为10^19进制的中间态(intermediate_state_integer::intermediate_state_integer)
--                        a.对字符串进行预处理, 解析其格式是否正确并获取符号，如何获取其无符号部分
--                        b.逆序遍历字符串, 并逐个的把字符转换为10^19进制数
--                    2.进行短除法,短除2^64后得到2^64进制表示的数(intermediate_state_integer::convert_to_binary_system)
--                        1.创建转换标准数(cast_standard)，其值为2^64的10^19进制数
--                        2.把转换标准数逐渐乘以2, 直到其大小超过了中间态
--                            如何比较中间态与标准转换数的大小(intermediate_state_integer::short_compare)
--                                a.比较空间占用
--                                b.如果空间占用相同，从高到底位逐位比较
--                        3.如果转换标准数大于中间态, 除以2并重新比较大小
--                          如果转换标准数等于中间态, 把结果vinteger.__buffer的第power_of_2位设置为1, 并结束
--                          如果转换标准数小于中间态, 把结果vinteger.__buffer的第power_of_2位设置为1, 把中间态减去转换标准数, 之后转换标准数大于中间态
--                          直到转换标准数为2^64
--
--                          --其中在等于或小于下:
--                            如果vinteger.__buffer == nullptr,  则其为cast_standard.binary_length
--                            如果vinteger.__bit_length == 0, 则其为cast_standard.bit_width
--
--                        4.处理小于2^64的部分
-
-                B.参数:c++ 算术类型
-                    1.对于浮点数,进行floor后转换为有符号整数
-                    2.对于有符号整数, 提取符号后把其绝对值以无符号数进行处理
-                    3.对于无符号整数, 开空间后, 直接写入__buffer[0]
-
+        __bit_length: 整数位长度, 其绝对值描述当前整数的占用了多少bit，其符号为整数的符号
+        __buffer:以2^64进制的形式存储高精度整数的绝对值，以低位优先的方式存储(最低位从0开始)+
                 
     */
     class vinteger
@@ -169,42 +135,6 @@ namespace algae
                 bool sign = false;
 
             private:
-                // 合法性测试函数，用于检查输入的字符串是否为有效的整数
-                void legitimacy_testing(std::string_view source)
-                {
-                    // 若输入字符串为空，抛出无效参数异常
-                    if(source.empty())
-                        throw std::invalid_argument("source is empty");
-
-                    // 检查字符串的第一个字符是否为负号，若是则标记为负数
-                    sign = source[0] == '-';
-                    // 若第一个字符既不是正负号也不是数字，抛出无效参数异常
-                    if(!(sign || source[0] == '+' || std::isdigit(source[0])))
-                        throw std::invalid_argument("source is not a valid integer");
-                    
-                    // 遍历字符串的剩余部分，检查是否都是数字
-                    for(size_t i = 1; i < source.size(); i++)
-                        if(!std::isdigit(source[i]))
-                            throw std::invalid_argument("source is not a valid integer");
-                }
-
-                // 移除字符串前缀零的函数
-                static std::string remove_prefix_zeros(std::string source)
-                {
-                    // 遍历字符串，找到第一个非零字符
-                    for(std::size_t i = 0; i < source.size(); ++i)
-                        if(source[i] != '0')
-                            return source.substr(i);
-
-                    // 若字符串全为零，返回空字符串
-                    return "";
-                }
-
-                // 默认构造函数，不做任何操作
-                intermediate_state_integer() = default;
-                // 拷贝构造函数，使用默认实现
-                intermediate_state_integer(const intermediate_state_integer&) = default;
-
                 // 分配 std::uint64_t 类型内存的函数
                 static std::uint64_t * make_int64_memory(const std::size_t n) 
                 {
@@ -214,179 +144,12 @@ namespace algae
                     std::memset(memory, 0, n * sizeof(std::uint64_t));
                     return memory;
                 }
-            public:
-                // 构造函数，接受一个 10 进制整数的字符串作为参数
-                intermediate_state_integer(std::string_view source)
-                {
-                    // 对输入字符串进行合法性测试
-                    legitimacy_testing(source);
-
-                    // 移除字符串的前缀零，并截取去除符号后的部分
-                    std::string copy = remove_prefix_zeros(std::string(source.begin() + !std::isdigit(source[0]), source.end()));
-                    // 若处理后的字符串为空，直接返回
-                    if (copy.empty())
-                        return;
-                    
-                    // 临时变量，用于存储当前部分的数值
-                    std::uint64_t temporary = 0;
-                    // 移位变量，用于计算当前字符的权重
-                    std::uint64_t shift = 1;
-                    // 分配内存空间，用于存储中间态整数
-                    buffer = make_int64_memory(std::max(2, (int)copy.length() / std::numeric_limits<std::uint64_t>::digits10 + 1));
-
-                    // 逆序遍历字符串
-                    for(auto it = copy.rbegin(); it != copy.rend(); ++it)
-                    {
-                        // 若移位变量达到 10^19，将临时变量存储到 buffer 中，并重置临时变量和移位变量
-                        if (shift == cast_standard::overflow_bound)
-                        {
-                            buffer[length++] = temporary;
-                            temporary = 0, shift = 1;
-                        }
-
-                        // 计算当前字符的数值，并累加到临时变量中
-                        temporary += (*it - '0') * shift;
-                        // 移位变量乘以 10
-                        shift *= 10;
-                    }
-
-                    // 若临时变量不为 0，将其存储到 buffer 中
-                    if(temporary != 0)
-                        buffer[length++] = temporary;
-                }
-
-                // 析构函数，释放分配的内存
-                ~intermediate_state_integer()
-                {
-                    if(buffer != nullptr)
-                        delete[] buffer;
-                }
-
-            private:
-                // 带借位减法函数，用于计算两个 64 位无符号整数的减法，并处理借位
-                inline static std::uint64_t sub_with_retreat(std::uint64_t a, std::uint64_t b, bool& retreat) 
-                {
-                    // 先将借位加到减数上
-                    b += retreat;
-                    // 判断是否需要借位
-                    retreat = a < b;
-                    // 根据是否借位返回计算结果
-                    return retreat ? cast_standard::overflow_bound - (b - a) :  a - b;
-                }
-
-                // 短比较函数，用于比较中间态整数和转换标准数的大小
-                std::strong_ordering short_compare(const cast_standard& standard)
-                {
-                    // 先比较两者的长度
-                    if(auto r = standard.length() <=> length; r != std::strong_ordering::equal)
-                        return r;
-
-                    // 若长度相同，从高位到低位逐位比较
-                    for(int i = length - 1; i >= 0; --i)
-                    {
-                        if(auto r = standard.buffer[i] <=> buffer[i]; r != std::strong_ordering::equal)
-                            return r;
-                    }
-                    
-                    // 若所有位都相同，返回相等
-                    return std::strong_ordering::equal;
-                }
-
-                // 短减法函数，用于从中间态整数中减去转换标准数
-                void short_isub(const cast_standard& standard)
-                {
-                    // 借位标志
-                    bool retreat = false;
-                    // 索引变量
-                    std::size_t index = 0;
-
-                    // 从低位到高位逐位相减
-                    for(; index < standard.length(); ++index)
-                        buffer[index] = sub_with_retreat(buffer[index], standard.buffer[index], retreat);
-                    
-                    // 处理剩余的借位
-                    for(; retreat; ++index)
-                        buffer[index] = sub_with_retreat(buffer[index], 0, retreat);
-
-                    // 移除高位的零
-                    for(int i = length - 1; buffer[i] == 0 && i >= 0; --i, --length)
-                        /* pass */;
-                }
-
-                // 设置指定位为 1 的函数
-                inline void bitset(std::uint8_t * memory, std::size_t index) {
-                    memory[index / 8] |= 1 << (index % 8);
-                }
-            public:
-                // 将中间态整数转换为 2^64 进制表示的函数
-                void convert_to_binary_system(vinteger& result)
-                {
-                    // 若中间态整数的 buffer 为空，直接返回
-                    if(buffer == nullptr)
-                        return;
-
-                    // 创建转换标准数对象
-                    cast_standard standard;
-                    // 比较中间态整数和转换标准数的大小
-                    std::partial_ordering relation = short_compare(standard);
-
-                    // 若中间态整数小于转换标准数，将转换标准数乘以 2 并重新比较
-                    while(relation == std::partial_ordering::less)
-                    {
-                        standard.mul2();
-                        relation = short_compare(standard);
-                    }
-                    
-                    // 进行短除法，直到转换标准数为 2^64
-                    // 如果中间态整数开始就小于转换标准数, 不进行循环
-                    while(standard.power_of_2() > 64 || (standard.power_of_2() == 64 && relation != std::partial_ordering::greater))
-                    {
-                        // 若中间态整数大于转换标准数，将转换标准数除以 2 并重新比较
-                        if(relation == std::partial_ordering::greater)
-                        {
-                            standard.div2();
-                            relation = short_compare(standard);
-                            continue;
-                        }
-                        // buffer 为空，分配内存
-                        else if(result.__buffer == nullptr)
-                            result.__change_capacity(standard.binary_length(), false, true);
-                        
-                        // 设置结果的指定位为 1
-                        bitset((std::uint8_t*)result.__buffer, standard.power_of_2());
-                        
-                        // 更新结果的位数
-                        if(std::abs(result.__bit_length) < (std::int32_t)standard.power_of_2())
-                            result.__bit_length = (std::int32_t)standard.bit_width() * (sign ? -1 : 1);
-
-                        // 若中间态整数等于转换标准数，结束转换
-                        if (relation == std::partial_ordering::equivalent)
-                            return;
-
-                        // 标记为大于
-                        relation = std::partial_ordering::greater;
-                        // 从中间态整数中减去转换标准数
-                        short_isub(standard);
-                    }
-
-                    // 若结果的 buffer 为空，分配内存
-                    if(result.__buffer == nullptr)
-                        result.__change_capacity(1, false, true);
-
-                    // 处理剩余部分小于2^64的部分
-                    if(relation == std::partial_ordering::greater)
-                        result.__buffer[0] = buffer[1] * cast_standard::overflow_bound + buffer[0];
-
-                    // 如果若中间态整数开始就小于转换标准数更新结果的位数
-                    if(result.__bit_length == 0)
-                        result.__bit_length = std::bit_width(result.__buffer[0]) * (sign ? -1 : 1);
-                }
 
                 // 获取指定位的值的函数
                 inline bool bitget(const std::uint8_t * memory, std::size_t index) {
                     return memory[index / 8] & (1 << (index % 8));
                 }
-            private:
+
                 // 带进位加法函数，用于计算两个 64 位无符号整数的加法，并处理进位
                 inline static std::uint64_t add_with_carry(std::uint64_t a, std::uint64_t b, bool& carry) 
                 {
@@ -403,7 +166,7 @@ namespace algae
                 intermediate_state_integer(const vinteger& source)
                 {
                     // 分配内存空间，用于存储中间态整数
-                    buffer = make_int64_memory(std::max(std::size_t((source.value_length() * 64 * 0.3010) / 8 + 1), std::size_t(2)));
+                    buffer = make_int64_memory(std::max(std::size_t((source.__value_length() * 64 * 0.3010) / 8 + 1), std::size_t(2)));
                     // 获取源 vinteger 对象的符号
                     sign = source.__bit_length < 0;
 
@@ -475,7 +238,9 @@ namespace algae
 
         using __computing_unit_type = std::uint_fast64_t;
         using __CUtype = __computing_unit_type;
-        constexpr static std::size_t __CUtype_bit_lenght = sizeof(__CUtype) * 8;
+        using __HCUtype = std::uint_fast32_t;
+        constexpr static std::size_t __CUtype_bit_length = sizeof(__CUtype) * 8;
+        constexpr static std::size_t __HCUtype_bit_length = sizeof(__HCUtype) * 8;
 
         __CUtype * __buffer = nullptr;
         std::int32_t __bit_length = 0;
@@ -506,14 +271,14 @@ namespace algae
         {
             if(unit_count > __capacity)
                 __change_capacity(unit_count, true);
-            else if(value_length() == 0)
+            else if(__value_length() == 0)
                 clear();
         }
 
         void __capacity_adaptive() 
         {
-            if(__capacity > value_length())
-                __change_capacity(value_length());
+            if(__capacity > __value_length())
+                __change_capacity(__value_length());
         }
 
 
@@ -553,9 +318,85 @@ namespace algae
         }
 
 
+    private:
+        static int __legitimacy_testing(std::string_view source)
+        {
+            // 若输入字符串为空，抛出无效参数异常
+            if(source.empty())
+                throw std::invalid_argument("source is empty");
+
+            // 检查字符串的第一个字符是否为负号，若是则标记为负数
+            int sign = source[0] == '-' ? -1 : 1;
+            // 若第一个字符既不是正负号也不是数字，抛出无效参数异常
+            if(!(source[0] == '-' || source[0] == '+' || std::isdigit(source[0])))
+                throw std::invalid_argument("source is not a valid integer");
+            
+            // 遍历字符串的剩余部分，检查是否都是数字
+            for(size_t i = 1; i < source.size(); i++)
+                if(!std::isdigit(source[i]))
+                    throw std::invalid_argument("source is not a valid integer");
+
+            return sign;
+        }
+
+        // 移除字符串前缀零的函数
+        static std::string_view __remove_prefix_zeros(std::string_view source)
+        {
+            // 遍历字符串，找到第一个非零字符
+            for(std::size_t i = std::isdigit(source.front()) ? 0 : 1; i < source.size(); ++i)
+            {
+                if(source[i] != '0')
+                    return source.substr(i);
+            }
+
+            // 若字符串全为零，返回空字符串
+            return "";
+        }
     public:
-        vinteger(std::string_view source) {
-            vinteger::intermediate_state_integer(source).convert_to_binary_system(*this);
+        vinteger(std::string_view source)
+        {
+            int sign = __legitimacy_testing(source);
+            std::string_view copy = __remove_prefix_zeros(source);
+
+            if(copy.empty())
+                return;
+
+            __HCUtype temporary = 0, shift = 1;
+            const static __HCUtype overflow_bound = std::pow(10, std::numeric_limits<__HCUtype>::digits10);
+            auto it = copy.begin();
+
+            for(;it != copy.end() && shift < overflow_bound; ++it)
+            {
+                if(shift != 1)
+                    temporary *= 10;
+
+                temporary += (*it - '0');
+                shift *= 10;
+            }
+
+            *this += temporary;
+            temporary = 0, shift = 1;
+
+            for(; it != copy.end(); ++it)
+            {
+                if(shift == overflow_bound)
+                {
+                    *this *= overflow_bound;
+                    *this += temporary;
+                    temporary = 0, shift = 1;
+                }
+
+                if(shift != 1)
+                    temporary *= 10;
+
+                temporary += (*it - '0');
+                shift *= 10;
+            }
+
+            *this *= shift;
+            *this += temporary;
+
+            __bit_length = __set_int_sign(__bit_length, sign);
         }
 
 
@@ -569,13 +410,35 @@ namespace algae
 
 
 
+        template<std::unsigned_integral T>
+        vinteger& operator=(const T x)
+        {
+            if(x == 0)
+                clear();
+            else
+                __change_capacity(1), __bit_length = std::bit_width(x);
+
+            return *this;
+        }
+
+        template<std::signed_integral T>
+        vinteger& operator=(const T x)
+        {
+            this->operator=((std::make_unsigned<T>)std::abs(x));
+            __bit_length = __set_int_sign(__bit_length, x < 0 ? -1 : 1);
+            return *this;
+        }
+
+
+
+
         vinteger& operator=(const vinteger& source)
         {
             if(this == &source)
                 return *this;
 
-            __change_capacity(source.value_length());
-            std::memcpy(__buffer, source.__buffer, source.value_length() * sizeof(__CUtype));
+            __change_capacity(source.__value_length());
+            std::memcpy(__buffer, source.__buffer, source.__value_length() * sizeof(__CUtype));
             __bit_length = source.__bit_length;
 
             return *this;
@@ -620,19 +483,16 @@ namespace algae
             return std::abs(__bit_length);
         }
 
-        inline std::size_t value_length() const {
-            return std::abs(__bit_length) / __CUtype_bit_lenght + bool(std::abs(__bit_length) % __CUtype_bit_lenght);
+    private:
+        inline std::size_t __value_length() const {
+            return std::abs(__bit_length) / __CUtype_bit_length + bool(std::abs(__bit_length) % __CUtype_bit_length);
         }
 
-        
-
-        inline std::uint64_t* value_data() {
-            return __buffer;
+        inline std::size_t __HCU_value_length() const {
+            return std::abs(__bit_length) / __HCUtype_bit_length + bool(std::abs(__bit_length) % __HCUtype_bit_length);
         }
-
-        inline const std::uint64_t* value_data() const {
-            return __buffer;
-        }
+    
+    public:
         
         void clear()
         {
@@ -683,7 +543,7 @@ namespace algae
             if(auto r = a.sign() <=> __int_sign(b); r != std::strong_ordering::equal || (a.empty() && b == 0)) 
                 return r;
 
-            if(a.value_bit_width() >= __CUtype_bit_lenght)
+            if(a.value_bit_width() >= __CUtype_bit_length)
                 return std::strong_ordering::greater;
 
             return a.__buffer[0] * a.sign() <=> b;
@@ -707,23 +567,32 @@ namespace algae
         // ****** bit move ******
         vinteger& operator <<=(const std::size_t shift)
         {
-            if(shift == 0)
+            if(shift == 0 || empty())
                 return *this;
 
-            const std::size_t length = value_length();
-            const std::size_t shift_unit = shift / __CUtype_bit_lenght;
-            const std::size_t shift_bit = shift % __CUtype_bit_lenght;
+            const std::size_t length = __value_length();
+            const std::size_t shift_unit = shift / __CUtype_bit_length;
+            const std::size_t shift_bit = shift % __CUtype_bit_length;
             
             std::uint64_t overflow = 0;
 
             __bit_length += __set_int_sign(shift, sign());
-            __try_reserve(value_length());
+            __try_reserve(__value_length());
 
-            for(std::size_t i = 0; i < length; ++i)
+            if(std::size_t i = 0; shift_bit)
             {
-                const std::uint64_t temp = __buffer[i];
-                __buffer[i] = overflow | (temp << shift_bit);
-                overflow = temp >> (__CUtype_bit_lenght - shift_bit);
+                while(__buffer[i] == 0)
+                {   
+                    if((++i) >= length)
+                        break;
+                }
+
+                for(;i < length; ++i)
+                {
+                    const std::uint64_t temp = __buffer[i];
+                    __buffer[i] = overflow | (temp << shift_bit);
+                    overflow = temp >> (__CUtype_bit_length - shift_bit);
+                }
             }
             
             if(shift_unit)
@@ -733,7 +602,7 @@ namespace algae
             }
 
             if(overflow)
-                __buffer[value_length() - 1] = overflow;
+                __buffer[__value_length() - 1] = overflow;
 
             return *this;
         }
@@ -749,26 +618,35 @@ namespace algae
         
         vinteger& operator >>=(const std::size_t shift)
         {
-            if(shift == 0)
+            if(shift == 0 || empty())
                 return *this;
 
-            const std::size_t length = value_length();
-            const std::size_t shift_unit = shift / __CUtype_bit_lenght;
-            const std::size_t shift_bit = shift % __CUtype_bit_lenght;
+            const std::size_t length = __value_length();
+            const std::size_t shift_unit = shift / __CUtype_bit_length;
+            const std::size_t shift_bit = shift % __CUtype_bit_length;
 
-            std::uint64_t underflow = 0;
-            for(int i = length - 1; i >= 0; --i)
+            if(std::uint64_t underflow = 0, stop = 0; shift_bit)
             {
-                const std::uint64_t temp = __buffer[i];
-                __buffer[i] = underflow | (temp >> shift_bit);
-                underflow = temp << (__CUtype_bit_lenght - shift_bit);
+                while(__buffer[stop] == 0)
+                {   
+                    if((++stop) >= length)
+                        break;
+                }
+
+                for(int i = length - 1; i >= stop; --i)
+                {
+                    const std::uint64_t temp = __buffer[i];
+                    __buffer[i] = underflow | (temp >> shift_bit);
+                    underflow = temp << (__CUtype_bit_length - shift_bit);
+                }
             }
+            
 
             if(shift_unit)
                 std::memmove(__buffer, __buffer + shift_unit, length * sizeof(__CUtype));
 
             __bit_length -= __set_int_sign(shift, sign());
-            __try_reserve(value_length());
+            __try_reserve(__value_length());
 
             return *this;
         }
@@ -795,9 +673,9 @@ namespace algae
             const vinteger* min_vint = nullptr;
 
             // 绝对值较大的 vinteger 对象的存储长度
-            std::size_t max_lenght = 0;
+            std::size_t max_length = 0;
             // 绝对值较小的 vinteger 对象的存储长度
-            std::size_t min_lenght = 0;
+            std::size_t min_length = 0;
 
             // 运算结果的符号，1 表示正，-1 表示负，0 表示结果为 0
             int sign = 0;
@@ -832,7 +710,7 @@ namespace algae
                 // 设置绝对值较大和较小的操作数指针
                 max_vint = &max_v, min_vint = &min_v;
                 // 记录绝对值较大和较小的操作数的存储长度
-                max_lenght = max_v.value_length(), min_lenght = min_v.value_length();
+                max_length = max_v.__value_length(), min_length = min_v.__value_length();
             }
 
             // 处理两个操作数位数相同且为减法运算的情况
@@ -841,20 +719,20 @@ namespace algae
             int init_case_for_same_space_size_with_miuns_mode(const vinteger& a, const vinteger& b)
             {
                 // 从高位到低位逐位比较两个操作数
-                for(int i = a.value_length() - 1; i >= 0; --i)
+                for(int i = a.__value_length() - 1; i >= 0; --i)
                 {
                     // 如果 a 的当前位大于 b 的当前位，a 为绝对值较大的操作数
                     if(a.__buffer[i] > b.__buffer[i])
                     {
                         max_vint = &a, min_vint = &b;
-                        max_lenght = min_lenght = i + 1;
+                        max_length = min_length = i + 1;
                         return 1;
                     }
                     // 如果 a 的当前位小于 b 的当前位，b 为绝对值较大的操作数
                     else if(a.__buffer[i] < b.__buffer[i])
                     {
                         max_vint = &b, min_vint = &a;
-                        max_lenght = min_lenght = i + 1;
+                        max_length = min_length = i + 1;
                         return -1;
                     }
                 }
@@ -1002,7 +880,7 @@ namespace algae
                 bool carry_or_retreat = false;
             
                 // 处理重叠部分
-                for(std::size_t i = 0; i < min_lenght; ++i) 
+                for(std::size_t i = 0; i < min_length; ++i) 
                 {
                     if constexpr(Mode)
                         output->__buffer[i] = full_adder(max_vint->__buffer[i], min_vint->__buffer[i], carry_or_retreat);
@@ -1048,10 +926,10 @@ namespace algae
             void handle_overflow_part(bool carry_or_retreat)
             {
                 // 从重叠部分的下一位开始处理
-                std::size_t i = min_lenght;
+                std::size_t i = min_length;
                 
                 // 处理溢出部分，直到没有进位或借位
-                for(; i < max_lenght && carry_or_retreat; ++i)
+                for(; i < max_length && carry_or_retreat; ++i)
                 {
                     if constexpr(Mode)
                         output->__buffer[i] = carry_handle(max_vint->__buffer[i], carry_or_retreat);
@@ -1063,7 +941,7 @@ namespace algae
                 if(carry_or_retreat)
                 {
                     // 将进位存储到最高位
-                    output->__buffer[max_lenght] = carry_or_retreat;
+                    output->__buffer[max_length] = carry_or_retreat;
                     // 更新结果的位数和符号
                     output->__bit_length = __set_int_sign(max_vint->value_bit_width() + 1, sign);
                 }
@@ -1071,19 +949,19 @@ namespace algae
                 else
                 {
                     // 复制剩余部分
-                    std::memmove(output->__buffer + i, max_vint->__buffer + i, (max_lenght - i) * sizeof(__CUtype));
+                    std::memmove(output->__buffer + i, max_vint->__buffer + i, (max_length - i) * sizeof(__CUtype));
 
                     // 减法运算且最高位为 0
-                    if(mode < 0 && output->__buffer[max_lenght - 1] == 0)
+                    if(mode < 0 && output->__buffer[max_length - 1] == 0)
                     {
-                        if(max_lenght > 1)
-                            output->__bit_length = __set_int_sign(std::bit_width(output->__buffer[max_lenght - 2]) + (max_lenght - 2) * 64, sign);
+                        if(max_length > 1)
+                            output->__bit_length = __set_int_sign(std::bit_width(output->__buffer[max_length - 2]) + (max_length - 2) * __CUtype_bit_length, sign);
                         else
                             output->clear();
                     }
                     // 其他情况
                     else
-                        output->__bit_length = __set_int_sign(std::bit_width(output->__buffer[max_lenght - 1]) + (max_lenght - 1) * 64, sign);
+                        output->__bit_length = __set_int_sign(std::bit_width(output->__buffer[max_length - 1]) + (max_length - 1) * __CUtype_bit_length, sign);
                 }
             }
 
@@ -1100,7 +978,7 @@ namespace algae
                 else
                 {
                     // 根据运算模式分配内存
-                    output->__try_reserve(mode > 0 ? max_lenght + 1 : max_lenght);
+                    output->__try_reserve(mode > 0 ? max_length + 1 : max_length);
 
                     // 处理重叠部分
                     bool carry_or_retreat = mode > 0 ? handle_overlapped_part<true>() : handle_overlapped_part<false>();
@@ -1175,34 +1053,104 @@ namespace algae
         }
 
     private:
-        static vinteger __karatsuba(const vinteger& x, const vinteger& y) 
+        struct multiplier_context
         {
-            if (x.value_bit_width() < 32 && y.value_bit_width() < 32) {
-                // 如果数字足够小，使用普通乘法
-                return vinteger(static_cast<__CUtype>(x.__buffer[0]) * static_cast<__CUtype>(y.__buffer[0]));
+            const vinteger * vint_max = nullptr;
+            const vinteger * vint_min = nullptr;
+
+            vinteger * output = nullptr;
+            int sign = 0;
+
+            bool pretreatment(const vinteger& x, const vinteger& y, vinteger& z) 
+            {
+                if(x.empty() || y.empty())
+                    z.clear();
+                else if(x.value_bit_width() > 32 || y.value_bit_width() > 32)
+                    return false;
+                else if(x.value_bit_width() == 1)
+                    z = x.sign() == y.sign() ? y : -y;
+                else if(y.value_bit_width() == 1)
+                    z = x.sign() == y.sign() ? x : -x;
+                else
+                {
+                    z.__change_capacity(1);
+                    z.__buffer[0] = x.__buffer[0] * y.__buffer[0];
+                    z.__bit_length = __set_int_sign(std::bit_width(z.__buffer[0]), x.sign() * y.sign());
+                }
+
+                return true;
             }
 
-            // 计算数字的位数
-            std::size_t n = std::max(x.value_bit_width(), y.value_bit_width());
-            std::size_t m = n / 2;
+            multiplier_context(const vinteger& x, const vinteger& y, vinteger& z, bool test = false)
+            {
+                if(pretreatment(x, y, z))
+                   return;
+                
+                sign = x.sign() * y.sign();
+                output = &z;
 
-            // 拆分数字
-            vinteger a = x >> m;
-            vinteger b = x - (a << m);
-            vinteger c = y >> m;
-            vinteger d = y - (c << m);
+                if (x >= y)
+                    vint_max = &x, vint_min = &y;
+                else
+                    vint_max = &y, vint_min = &x;
 
-            // 递归计算三个乘积
-            vinteger ac = __karatsuba(a, c);
-            vinteger bd = __karatsuba(b, d);
-            vinteger z2 = __karatsuba(a + b, c + d);
+                if(vint_min->value_bit_width() <= 32 && test)
+                    unit_multiplication();
+                else
+                    alpha_multiplication();
+            }
 
-            // 计算中间项
-            vinteger ad_plus_bc = z2 - ac - bd;
 
-            // 合并结果
-            return (ac << (2 * m)) + (ad_plus_bc << m) + bd;
-        }
+
+            inline static __HCUtype multiplication_with_overflow(const __HCUtype a, const __HCUtype b, __HCUtype& overflow)
+            {
+                const __CUtype r = (__CUtype)a * (__CUtype)b + (__CUtype)overflow;
+                overflow = r >> 32;
+                return r;
+            }
+
+            void unit_multiplication()
+            {
+                output->__change_capacity(vint_max->__value_length() + 1, false, true);
+                this->output->__buffer[vint_max->__value_length() - 1] = 0;
+                this->output->__buffer[vint_max->__value_length()] = 0;
+                __HCUtype* vint_out = (__HCUtype*)this->output->__buffer;
+
+                const __HCUtype* vint_max = (__HCUtype*)this->vint_max->__buffer;
+                const __HCUtype  vint_min = this->vint_min->__buffer[0];
+                const std::size_t length =  this->vint_max->__HCU_value_length();
+                
+                __HCUtype overflow = 0;
+
+                for(std::size_t i = 0; i < length; ++i)
+                    vint_out[i] = multiplication_with_overflow(vint_max[i], vint_min, overflow);
+
+                if(overflow)
+                {
+                    vint_out[length] = overflow;
+                    output->__bit_length = __set_int_sign(std::bit_width(overflow) + length * __HCUtype_bit_length, sign);
+                }
+                else
+                    output->__bit_length = __set_int_sign(std::bit_width(vint_out[length - 1]) + (length - 1) * __HCUtype_bit_length, sign);
+            }
+
+
+            void alpha_multiplication()
+            {
+                int c = std::bit_width(vint_min->__buffer[0]);
+
+                for(int i = vint_min->value_bit_width() - 1; i >= 0; --i)
+                {
+                    if(!(vint_min->__buffer[i / __CUtype_bit_length] & (1ull << __CUtype(i % __CUtype_bit_length))))
+                        continue;
+
+                    *output += (*vint_max << i);
+                }
+
+                output->__bit_length = __set_int_sign(output->__bit_length, sign);
+            }
+        };
+
 
     public:
         friend vinteger operator*(const vinteger&, const vinteger&);
@@ -1212,6 +1160,22 @@ namespace algae
 
         template<std::integral T>
         friend vinteger operator*(const T, const vinteger&);
+
+
+
+        vinteger& operator*=(const vinteger& other) 
+        {
+            vinteger c;
+            vinteger::multiplier_context(*this, other, c, true);
+            *this = std::move(c);
+            return *this;
+        }
+
+        template<std::integral T>
+        vinteger operator*=(const T x) {
+            return (*this *= vinteger(x));
+        }
+        
 
 
         std::string to_string() const
@@ -1235,7 +1199,7 @@ namespace algae
         if(auto r = a.__bit_length <=> b.__bit_length; r != std::strong_ordering::equal || (a.empty() && b.empty()))
             return r;
 
-        for(int i = a.value_length() - 1; i >= 0; --i)
+        for(int i = a.__value_length() - 1; i >= 0; --i)
             if(auto r = a.__buffer[i] <=> b.__buffer[i]; r != std::strong_ordering::equal)
                 return r;
 
@@ -1311,20 +1275,22 @@ namespace algae
 
 
 
-    vinteger operator*(const vinteger& a, const vinteger& b) {
-        return vinteger::__karatsuba(a, b);
+    vinteger operator*(const vinteger& a, const vinteger& b) 
+    {
+        vinteger c;
+        vinteger::multiplier_context(a, b, c, true);
+        return c;
     }
 
     template<std::integral T>
     vinteger operator*(const vinteger& a, const T b) {
-        return vinteger::__karatsuba(a, vinteger(b));
+        return a * vinteger(b);
     }
 
     template<std::integral T>
     vinteger operator*(const T a, const vinteger& b) {
-        return vinteger::__karatsuba(vinteger(a), b);
+        return vinteger(a) * b;
     }
-
 
     
     std::istream& operator >> (std::istream& in, vinteger& arg)
@@ -1352,10 +1318,46 @@ namespace algae
     std::uint64_t vinteger::cast_standard::half_overflow_bound = vinteger::cast_standard::overflow_bound / 2;
 }
 
+#include <ctime>
+
+void test_0()
+{
+    {
+        std::uint64_t a = std::time(nullptr), b = std::time(nullptr), c = 0;
+        bool carry = 0;
+
+        std::clock_t stime = std::clock();
+
+        for(std::uint64_t i = 0; i < 0xFFFFFFFF; ++i)
+        {
+            std::uint64_t t = a + b + carry;
+            carry = (t < a) || (t < b) || (carry && t == 0);
+            c = t;
+        }
+
+        std::cout << (std::clock() - stime) / (double)(CLOCKS_PER_SEC) << std::endl;
+    }
+
+    {
+        std::clock_t stime = std::clock();
+
+        std::uint32_t a = std::time(nullptr), b = std::time(nullptr), c = 0;
+        bool carry = 0;
+
+        for(std::uint64_t i = 0, l = 0xFFFFFFFFull * 2; i < l; ++i)
+        {
+            std::uint64_t t = a + b + carry;
+            carry = t & 0xFFFFFFFF00000000;
+            c = t;
+        }
+
+        std::cout << (std::clock() - stime) / (double)(CLOCKS_PER_SEC) << std::endl;
+    }
+}
 
 int main()
 {
     algae::vinteger a, b;
     std::cin >> a >> b;
-    std::cout << a + b;
+    std::cout << a * b;
 }
