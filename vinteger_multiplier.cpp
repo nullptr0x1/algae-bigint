@@ -3,6 +3,10 @@
 namespace algae
 {
     extern std::int64_t __set_int_sign(const std::uint64_t x, int sign);
+    extern std::size_t bit_capacity(const std::size_t bit_count, const std::size_t unit_size);
+    extern vinteger::CUtype full_adder(vinteger::CUtype a, vinteger::CUtype b, bool& carry);
+    extern vinteger::CUtype carry_handle(vinteger::CUtype x, bool& carry);
+
 
     struct multiplier_context
     {
@@ -51,17 +55,59 @@ namespace algae
             naive_multiplication();
         }
 
-        void naive_multiplication()
-        {
-            for(int i = vint_min->value_bit_width() - 1; i >= 0; --i)
-            {
-                if(!(vint_min->__buffer[i / __CUtype_bit_length] & (1ull << __CUtype(i % __CUtype_bit_length))))
-                    continue;
 
-                *output += (*vint_max << i);
+
+        inline bool bitget(const __CUtype* buffer, const int i) const {
+            return buffer[i / __CUtype_bit_length] & (1ull << __CUtype(i % __CUtype_bit_length));
+        }
+
+        std::size_t shift_plus(const int shift) 
+        {
+            const std::size_t length = vint_max->__value_length();
+            const std::size_t shift_unit = shift / __CUtype_bit_length;
+            const std::size_t shift_bit = shift % __CUtype_bit_length;
+
+            __CUtype overflow = 0, index = 0;
+            bool carry = false;
+            
+            for(; index < length; ++index)
+            {
+                const __CUtype temporary = vint_max->__buffer[index], shift_index = index + shift_unit;
+                output->__buffer[shift_index] = full_adder(output->__buffer[shift_index], overflow | (temporary << shift_bit), carry);
+                overflow = temporary >> (__CUtype_bit_length - shift_bit);
+            }
+            
+            if(overflow)
+            {
+                output->__buffer[index + shift_unit] = full_adder(output->__buffer[index + shift_unit], overflow, carry);
+                ++index;
             }
 
-            output->__bit_length = __set_int_sign(output->__bit_length, sign);
+            for(; carry; ++index)
+            {
+                const __CUtype shift_index = index + shift_unit;
+                output->__buffer[shift_index] = carry_handle(output->__buffer[shift_index], carry);
+            }
+
+            return index + shift_unit - 1;
+        }
+
+        void naive_multiplication()
+        {
+            std::size_t highest_order = 0;
+
+            for(int i = vint_min->value_bit_width() - 1; i >= 0; --i)
+            {
+                if(!bitget(vint_min->__buffer, i))
+                    continue;
+                
+                if(output->__capacity == 0)
+                    output->__change_capacity(bit_capacity(vint_min->value_bit_width() + vint_max->value_bit_width(), __CUtype_bit_length) + 1, false, true);
+
+                highest_order = std::max(highest_order, shift_plus(i));
+            }
+
+            output->__bit_length = __set_int_sign(std::bit_width(output->__buffer[highest_order]) + highest_order * __CUtype_bit_length, sign);
         }
     };
 

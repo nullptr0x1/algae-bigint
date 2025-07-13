@@ -31,6 +31,32 @@ namespace algae
         return diff;
     }
 
+    // 处理进位
+    // 参数 x 为要处理的 64 位无符号整数
+    // 参数 carry 为进位标志，引用传递
+    // 返回值：处理后的结果
+    inline vinteger::CUtype carry_handle(vinteger::CUtype x, bool& carry) 
+    {
+        // 加上进位
+        vinteger::CUtype c = x + carry;
+        // 判断是否产生进位
+        carry = c < x && carry;
+        return c;
+    }
+
+    // 处理借位
+    // 参数 x 为要处理的 64 位无符号整数
+    // 参数 retreat 为借位标志，引用传递
+    // 返回值：处理后的结果
+    inline vinteger::CUtype retreat_handle(vinteger::CUtype x, bool& retreat)
+    {
+        // 减去借位
+        vinteger::CUtype diff = x - retreat;
+        // 判断是否产生借位
+        retreat = x == 0 && retreat;
+        return diff;
+    }
+
 
     struct adder_context
     {
@@ -236,32 +262,6 @@ namespace algae
             }
 
             return carry_or_retreat;
-        }
-
-        // 处理进位
-        // 参数 x 为要处理的 64 位无符号整数
-        // 参数 carry 为进位标志，引用传递
-        // 返回值：处理后的结果
-        inline static std::uint64_t carry_handle(__CUtype x, bool& carry) 
-        {
-            // 加上进位
-            __CUtype c = x + carry;
-            // 判断是否产生进位
-            carry = c < x && carry;
-            return c;
-        }
-
-        // 处理借位
-        // 参数 x 为要处理的 64 位无符号整数
-        // 参数 retreat 为借位标志，引用传递
-        // 返回值：处理后的结果
-        inline static std::uint64_t retreat_handle(__CUtype x, bool& retreat)
-        {
-            // 减去借位
-            __CUtype diff = x - retreat;
-            // 判断是否产生借位
-            retreat = x == 0 && retreat;
-            return diff;
         }
 
         // 处理溢出部分的运算

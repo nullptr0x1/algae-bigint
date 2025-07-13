@@ -119,12 +119,16 @@ namespace algae
         return std::abs(__bit_length);
     }
 
+    inline std::size_t bit_capacity(const std::size_t bit_count, const std::size_t unit_size) {
+        return bit_count / unit_size + bool(bit_count % unit_size);
+    }
+
     std::size_t vinteger::__value_length() const {
-        return std::abs(__bit_length) / __CUtype_bit_length + bool(std::abs(__bit_length) % __CUtype_bit_length);
+        return bit_capacity(std::abs(__bit_length), __CUtype_bit_length);
     }
 
     std::size_t vinteger::__HCU_value_length() const {
-        return std::abs(__bit_length) / __HCUtype_bit_length + bool(std::abs(__bit_length) % __HCUtype_bit_length);
+        return bit_capacity(std::abs(__bit_length), __HCUtype_bit_length);
     }
 
 
