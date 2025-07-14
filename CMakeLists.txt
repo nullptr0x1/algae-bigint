@@ -13,7 +13,7 @@ function(find_all_files dir result pattern)
     set(${result} ${files} PARENT_SCOPE)
 endfunction()
 
-if (0)
+if (1)
     set(ALL_CPP_FILES main.cpp
         vinteger_adder.cpp
         vinteger_bit_operation.cpp 
