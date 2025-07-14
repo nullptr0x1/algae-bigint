@@ -71,7 +71,7 @@ namespace algae
             int stop = 0;
             while(__buffer[stop] == 0)
             {   
-                if((++stop) >= length)
+                if((++stop) >= (int)length)
                     break;
             }
 

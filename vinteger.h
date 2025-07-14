@@ -19,8 +19,8 @@ namespace algae
         using __computing_unit_type = std::uint_fast64_t;
         using __CUtype = __computing_unit_type;
         using __HCUtype = std::uint_fast32_t;
-        constexpr static std::size_t __CUtype_bit_length = sizeof(__CUtype) * 8;
-        constexpr static std::size_t __HCUtype_bit_length = sizeof(__HCUtype) * 8;
+        constexpr static std::size_t __CUtype_bit_length = sizeof(std::uint64_t) * 8;
+        constexpr static std::size_t __HCUtype_bit_length = sizeof(std::uint32_t ) * 8;
 
         __CUtype * __buffer = nullptr;
         std::int32_t __bit_length = 0;

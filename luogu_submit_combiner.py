@@ -20,11 +20,15 @@ output_file = "omain.cpp"
 # 工作路径
 work_path = ""
 
+# 是否启用代码压缩，如果不启用，就只进行代码合并
+compress = True
+
 def test_combine():
     global extra_source_files
     global main_source_file
     global output_file
     global work_path
+    global compress
 
     work_path = "combiner_test"
     extra_source_files = [
@@ -37,6 +41,7 @@ def test_combine():
 
     main_source_file = "test.cpp"
     output_file = "omain.cpp"
+    compress = True
 
 import pathlib
 
@@ -207,7 +212,7 @@ class processor_context:
 
         with open(str(path), 'r', encoding="utf-8") as f:
             source = f.read()
-            self.sources = source.splitlines()
+            self.sources = source.split('\n')
 
         self.reliances = list[str]()
         self.result = str()
@@ -391,12 +396,29 @@ class processor_context:
 
         self.process_conventional_line(line)
 
+
+    def only_process_include(self, line:str):
+        if len(line2 := line.strip()) == 0:
+            ok = True
+        elif line2[0] != '#':
+            ok = True
+        else:
+            ok = self.try_process_include(line2)
+        
+        if ok:
+            self.result += ('\n' if len(self.result) != 0 else '') + line
+
+
     def process(self):
         if len(self.result) != 0:
             return self.result
 
         line_count = 1
         for line in self.sources:
+            if compress == False:
+                self.only_process_include(line)
+                continue
+
             try:
                 self.process_line(line)
                 self.last_line = self.current_line

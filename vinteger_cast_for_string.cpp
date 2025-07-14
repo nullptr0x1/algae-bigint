@@ -3,10 +3,11 @@
 #include <stdexcept>
 #include <cstring>
 #include <vector>
+#include <limits>
 
 namespace algae
 {
-    // 转换标准数类，用于在高精度整数转换过程中作为转换标准
+    // 转换标准数，用于在高精度整数转换过程中作为转换标准
     class cast_standard
     {
         private:
@@ -278,6 +279,7 @@ namespace algae
 
     vinteger::vinteger(std::string_view source)
     {
+#if 1
         int sign = __legitimacy_testing(source);
         std::string_view copy = __remove_prefix_zeros(source);
 
@@ -285,7 +287,7 @@ namespace algae
             return;
 
         __HCUtype temporary = 0, shift = 1;
-        const static __HCUtype overflow_bound = std::pow(10, std::numeric_limits<__HCUtype>::digits10);
+        constexpr static __HCUtype overflow_bound = 1000000000;
         auto it = copy.begin();
 
         for(;it != copy.end() && shift < overflow_bound; ++it)
@@ -320,6 +322,24 @@ namespace algae
         *this += temporary;
 
         __bit_length = __set_int_sign(__bit_length, sign);
+
+#else
+        int sign = __legitimacy_testing(source);
+        std::string_view copy = __remove_prefix_zeros(source);
+
+        if(copy.empty())
+            return;
+
+        *this += (copy.front() - '0');
+
+        for(auto it = copy.begin() + 1; it != copy.end(); ++it)
+        {
+            *this *= 10;
+            *this += (*it - '0');
+        }
+
+        __bit_length = __set_int_sign(__bit_length, sign);
+#endif
     }
 
 

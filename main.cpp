@@ -3,6 +3,6 @@
 int main()
 {
     algae::vinteger a, b;
-    std::cin >> a >> b;
-    std::cout << a + b;
+    std::cin >> a;
+    std::cout << a;
 }
